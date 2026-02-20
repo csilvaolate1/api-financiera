@@ -97,11 +97,7 @@ La API quedará disponible en `http://localhost:8000`. Los endpoints están bajo
 php artisan test
 ```
 
-En Windows puedes usar el script incluido:
-
-```bash
-run-tests.bat
-```
+En Windows: `run-tests.bat`. Se prueban validaciones (usuarios, transacciones), reglas de negocio (saldo, límite diario, idempotencia) y mensajes en español.
 
 ## Endpoints principales
 
@@ -117,47 +113,7 @@ run-tests.bat
 - `GET /api/transactions/stats/total-by-sender` — Estadísticas por remitente (requiere token)
 - `GET /api/transactions/stats/average-by-user` — Promedio por usuario (requiere token)
 
-Las rutas protegidas requieren el header: `Authorization: Bearer <token>`.
-
----
-
-## Entrega: Proyecto en GitHub con acceso público
-
-### Subir el proyecto a GitHub
-
-1. **Crear un repositorio nuevo en GitHub**
-   - Ve a [github.com/new](https://github.com/new).
-   - Nombre sugerido: `api-financiera`.
-   - Elige **Público**.
-   - No inicialices con README, .gitignore ni licencia si ya tienes el proyecto local.
-
-2. **Inicializar Git en el proyecto (si aún no está)**
-
-   ```bash
-   git init
-   ```
-
-3. **Añadir el remoto y subir el código**
-
-   ```bash
-   git add .
-   git commit -m "Initial commit: API Financiera con Laravel"
-   git branch -M main
-   git remote add origin https://github.com/TU_USUARIO/api-financiera.git
-   git push -u origin main
-   ```
-
-4. **Compartir el enlace**
-   - El repositorio público quedará en: `https://github.com/TU_USUARIO/api-financiera`.
-   - Cualquier persona puede clonar y seguir las instrucciones de este README.
-
-### Resumen de entregables
-
-| Entregable                         | Cumplido |
-|------------------------------------|----------|
-| Proyecto en GitHub con acceso público | Repo público + `git push` |
-| Compartir archivo ENV              | `.env.example` en el repo; instrucciones en README |
-| Instrucciones de instalación en README.md | Este archivo (instalación, ENV, tests, GitHub) |
+Las rutas protegidas requieren el header: `Authorization: Bearer <token>`. Especificación OpenAPI en `docs/openapi.yaml`.
 
 ## Licencia
 
