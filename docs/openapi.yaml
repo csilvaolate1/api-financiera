@@ -1,0 +1,235 @@
+openapi: 3.0.3
+info:
+  title: API Financiera
+  description: API RESTful para gestión de usuarios y transacciones financieras
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api
+    description: Servidor local
+
+tags:
+  - name: Auth
+    description: Autenticación con Sanctum
+  - name: Usuarios
+    description: CRUD de usuarios
+  - name: Transacciones
+    description: Transferencias y reportes
+
+paths:
+  /register:
+    post:
+      tags: [Auth]
+      summary: Registrar usuario (público)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, initial_balance]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                password_confirmation: { type: string }
+                initial_balance: { type: number, format: double, minimum: 0 }
+      responses:
+        201:
+          description: Usuario creado
+        422:
+          description: Errores de validación
+
+  /login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        200:
+          description: Token y datos del usuario
+        422:
+          description: Credenciales incorrectas
+
+  /logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesión
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: Sesión cerrada
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Usuario autenticado
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: Datos del usuario
+
+  /users:
+    get:
+      tags: [Usuarios]
+      summary: Listar usuarios (paginated)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer }
+      responses:
+        200:
+          description: Lista de usuarios
+    post:
+      tags: [Usuarios]
+      summary: Crear usuario
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, initial_balance]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                password_confirmation: { type: string }
+                initial_balance: { type: number, format: double, minimum: 0 }
+      responses:
+        201:
+          description: Usuario creado
+        422:
+          description: Errores de validación
+
+  /users/{id}:
+    get:
+      tags: [Usuarios]
+      summary: Ver usuario
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        200:
+          description: Usuario
+    put:
+      tags: [Usuarios]
+      summary: Actualizar usuario
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string }
+                password_confirmation: { type: string }
+                initial_balance: { type: number, minimum: 0 }
+      responses:
+        200:
+          description: Usuario actualizado
+    delete:
+      tags: [Usuarios]
+      summary: Eliminar usuario
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        204:
+          description: Usuario eliminado
+
+  /transactions:
+    get:
+      tags: [Transacciones]
+      summary: Listar transacciones (paginated)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 15 }
+      responses:
+        200:
+          description: Lista de transacciones
+    post:
+      tags: [Transacciones]
+      summary: Crear transferencia
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_user_id, to_user_id, amount]
+              properties:
+                from_user_id: { type: integer }
+                to_user_id: { type: integer }
+                amount: { type: number, minimum: 0.01 }
+                idempotency_key: { type: string, maxLength: 64 }
+      responses:
+        201:
+          description: Transacción creada
+        200:
+          description: Transacción duplicada (mismo idempotency_key)
+        422:
+          description: Saldo insuficiente / Límite diario (5000 USD) / Validación
+
+  /transactions/export/csv:
+    get:
+      tags: [Transacciones]
+      summary: Exportar transacciones en CSV (delimitador ;)
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: Archivo CSV
+
+  /transactions/stats/total-by-sender:
+    get:
+      tags: [Transacciones]
+      summary: Total transferido por cada usuario emisor
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: Array con user_id, user, total_transferred
+
+  /transactions/stats/average-by-user:
+    get:
+      tags: [Transacciones]
+      summary: Promedio de monto por usuario (emisor)
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: Array con user_id, user, average_amount, transaction_count
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  security:
+    - bearerAuth: []
