@@ -4,7 +4,7 @@ API REST en Laravel para gestión de usuarios y transacciones financieras (regis
 
 ## Requisitos
 
-- **PHP** 8.2 o superior
+- **PHP** 8.2 o superior, con extensiones: `openssl`, `pdo`, `pdo_mysql`, `mbstring`, `tokenizer`, `xml`, `ctype`, `json`, `bcmath`, `fileinfo`
 - **Composer**
 - **MySQL** 5.7+ / 8.x (o MariaDB)
 - **Node.js** y npm (opcional; solo si vas a compilar assets)
@@ -31,11 +31,14 @@ El proyecto incluye un archivo de ejemplo **`.env.example`** con todas las varia
 Copia el ejemplo y edita los valores según tu entorno:
 
 ```bash
-# En Linux/macOS:
+# Linux/macOS:
 cp .env.example .env
 
-# En Windows (CMD):
+# Windows (CMD):
 copy .env.example .env
+
+# Windows (PowerShell):
+Copy-Item .env.example .env
 ```
 
 Variables principales a revisar:
@@ -44,7 +47,7 @@ Variables principales a revisar:
 |----------------|--------------------------------|-------------------|
 | `APP_NAME`     | Nombre de la aplicación        | API Financiera    |
 | `APP_KEY`      | Se genera en el paso siguiente | —                 |
-| `APP_URL`      | URL base de la API             | http://localhost  |
+| `APP_URL`      | URL base de la API             | http://localhost:8000 (si usas `php artisan serve`) |
 | `DB_DATABASE`  | Nombre de la base de datos     | api_financiera    |
 | `DB_USERNAME`  | Usuario MySQL                  | root              |
 | `DB_PASSWORD`  | Contraseña MySQL               | (vacío o tu pass) |
@@ -69,11 +72,13 @@ CREATE DATABASE api_financiera CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 php artisan migrate
 ```
 
-(Opcional) Si hay seeders para datos de prueba:
+(Opcional) Crear usuario de prueba:
 
 ```bash
 php artisan db:seed
 ```
+
+Crea el usuario `test@example.com` con contraseña `password`.
 
 ### 7. Servidor de desarrollo
 
@@ -82,6 +87,8 @@ php artisan serve
 ```
 
 La API quedará disponible en `http://localhost:8000`. Los endpoints están bajo el prefijo `/api` (por ejemplo: `http://localhost:8000/api/register`, `http://localhost:8000/api/login`).
+
+Para comprobar que todo está bien: `GET http://localhost:8000/api` devuelve la información de la API.
 
 ## Compartir el archivo ENV
 
