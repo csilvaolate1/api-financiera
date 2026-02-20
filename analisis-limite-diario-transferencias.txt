@@ -1,0 +1,140 @@
+================================================================================
+CASO PRACTICO: LIMITE DIARIO DE TRANSFERENCIAS SUPERADO (5.000 USD)
+================================================================================
+Escenario: Los usuarios reportan que el sistema permite hacer mas de 5.000 USD
+en transferencias diarias cuando el requisito de negocio es 5.000 USD por dia.
+
+================================================================================
+1. COMO IDENTIFICAR EL ORIGEN DEL PROBLEMA
+================================================================================
+
+1.1 Revision del flujo en codigo
+--------------------------------
+En el controlador de transacciones (TransactionController::store()) el flujo era:
+
+  a) Validar request y comprobar saldo del emisor.
+  b) Calcular el total transferido hoy por el emisor (todayTotal) con una
+     consulta a la base de datos FUERA de la transaccion DB.
+  c) Si todayTotal + amount > 5000, responder 422 y no continuar.
+  d) Abrir DB::transaction(): bloquear usuarios (lockForUpdate), actualizar
+     balances y crear el registro en la tabla transactions.
+
+El punto critico: la verificacion del limite diario se hacia ANTES y FUERA
+de la transaccion que escribe en la base de datos.
+
+1.2 Causa raiz: condicion de carrera (race condition)
+----------------------------------------------------
+Dos peticiones simultaneas del mismo usuario pueden hacer lo siguiente:
+
+  - Peticion A lee todayTotal = 3000 (por ejemplo, dos transferencias ya hechas).
+  - Peticion B lee todayTotal = 3000 tambien, porque A aun no ha hecho commit.
+  - Ambas validan: 3000 + 2000 = 5000, ambas pasan.
+  - Ambas entran en DB::transaction(), crean su fila y hacen commit.
+  - Resultado: el usuario ha enviado 7000 USD en el dia (3000 + 2000 + 2000).
+
+La decision de aceptar o rechazar se tomo con un "instantanea" del total del
+dia que puede quedar desactualizada cuando hay concurrencia.
+
+1.3 Como verificarlo en el entorno
+----------------------------------
+  - Logs: buscar dias en los que un mismo from_user_id tenga suma de amount
+    en ese dia superior a 5000.
+
+  - Consulta SQL de diagnostico (por usuario y dia):
+
+    SELECT from_user_id, DATE(created_at) AS day, SUM(amount) AS total
+    FROM transactions
+    GROUP BY from_user_id, DATE(created_at)
+    HAVING SUM(amount) > 5000;
+
+  - Test de concurrencia: lanzar en paralelo varias peticiones POST a
+    /api/transactions con el mismo emisor y montos que en conjunto superen
+    5000; si alguna deberia ser rechazada y no lo es, se reproduce el fallo.
+
+  - Revision de codigo: confirmar que el chequeo de todayTotal estaba fuera
+    de DB::transaction() y que no habia ningun lock que serialice por emisor.
+
+
+================================================================================
+2. SOLUCIONES POSIBLES
+================================================================================
+
+OPCION A: Mover la verificacion dentro de la transaccion (RECOMENDADA)
+----------------------------------------------------------------------
+  - Incluir dentro de DB::transaction() el calculo de todayTotal (misma logica:
+    suma de amount del emisor desde Carbon::today()).
+  - Asegurar serializacion por emisor usando el lock pesimista que ya se
+    aplica al usuario emisor (lockForUpdate()). Asi una segunda peticion del
+    mismo usuario espera hasta que la primera termine y al recalcular
+    todayTotal ya ve la nueva transferencia.
+  - Si todayTotal + amount > 5000, hacer rollback y responder 422 con el mismo
+    mensaje y estructura que antes.
+
+  Ventajas: Corrige la condicion de carrera sin nuevas tablas ni servicios;
+           el limite se evalua con datos consistentes.
+  Desventajas: Mayor contention bajo mucha concurrencia del mismo usuario
+               (aceptable para un limite por usuario).
+
+OPCION B: Lock explicito por usuario (p. ej. Redis)
+---------------------------------------------------
+  - Antes de la transaccion DB, adquirir un lock distribuido (Redis, etc.)
+    por from_user_id (y opcionalmente por dia).
+  - Dentro del lock: recalcular todayTotal, validar limite, ejecutar la misma
+    DB::transaction() que ya existe.
+  - Soltar el lock al final.
+
+  Ventajas: Serializa todas las transferencias del mismo emisor en el dia.
+  Desventajas: Dependencia de Redis (o similar), mas complejidad operativa.
+
+OPCION C: Constraint a nivel de base de datos
+---------------------------------------------
+  - SQL estandar no permite un CHECK que consulte "suma de filas del mismo
+    usuario en la misma fecha". En algunos motores se podria acercar con
+    triggers o vistas materializadas; en MySQL/MariaDB suele ser fragil.
+  - No recomendado como unica solucion.
+
+RECOMENDACION: Implementar la Opcion A (verificacion del limite diario
+dentro de DB::transaction(), recalculando todayTotal despues de haber tomado
+el lock del usuario emisor).
+
+
+================================================================================
+3. JUSTIFICACION DE LA ESTRATEGIA DE IMPLEMENTACION
+================================================================================
+
+  a) Corrige la causa raiz
+     La decision de aceptar o rechazar la transferencia se toma con datos
+     ya actualizados dentro de la misma transaccion que escribe, eliminando
+     la ventana de carrera.
+
+  b) Reutiliza la infraestructura actual
+     No anade Redis ni nuevas tablas; usa la transaccion y los locks que ya
+     existen para los saldos.
+
+  c) Comportamiento externo estable
+     La API sigue devolviendo 422 con el mismo mensaje y campos (daily_limit,
+     used_today); los clientes no requieren cambios.
+
+  d) Tests
+     El test existente (rejects when daily limit exceeded) sigue siendo
+     valido. Se puede anadir un test que intente varias transferencias que
+     en conjunto superen 5000 y compruebe que el total persistido del dia
+     no supera el limite.
+
+  e) Rendimiento
+     Solo se serializan las peticiones del mismo emisor; el resto de
+     usuarios no se ven afectados.
+
+Pasos aplicados en la implementacion:
+  1. Mover el calculo de todayTotal y la comprobacion del limite al interior
+     del callback de DB::transaction(), despues de lockForUpdate() del
+     emisor y receptor.
+  2. Si se excede el limite (o el saldo dentro de la transaccion), lanzar
+     HttpResponseException con la respuesta 422 para que la transaccion
+     haga rollback y se mantenga el formato de respuesta actual.
+  3. Anadir (o ejecutar) un test que verifique que tras multiples intentos
+     que superen 5000 USD, el total del dia no excede el limite.
+
+================================================================================
+Fin del documento
+================================================================================
