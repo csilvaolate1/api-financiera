@@ -89,6 +89,29 @@ class TransactionValidationTest extends TestCase
         $response->assertJsonPath('balance', 100);
     }
 
+    public function test_rejects_transfer_from_another_users_account(): void
+    {
+        $authenticatedUser = $this->createUserWithBalance(100);
+        $otherUser = $this->createUserWithBalance(500);
+        $receiver = $this->createUserWithBalance(0);
+        $token = $this->getAuthToken($authenticatedUser);
+
+        // Intento de transferir desde otherUser (no autenticado) hacia receiver
+        $response = $this->postJson('/api/transactions', [
+            'from_user_id' => $otherUser->id,
+            'to_user_id' => $receiver->id,
+            'amount' => 100,
+        ], [
+            'Authorization' => 'Bearer ' . $token,
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['from_user_id']);
+        $response->assertJsonPath('errors.from_user_id.0', 'Solo puede transferir desde su propia cuenta.');
+        $this->assertSame(500.0, (float) $otherUser->fresh()->balance);
+    }
+
     public function test_rejects_same_user_as_sender_and_receiver(): void
     {
         $user = $this->createUserWithBalance(100);

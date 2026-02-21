@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreTransactionRequest extends FormRequest
 {
@@ -14,7 +15,11 @@ class StoreTransactionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'from_user_id' => ['required', 'exists:users,id'],
+            'from_user_id' => [
+                'required',
+                'exists:users,id',
+                Rule::in([auth()->id()]),
+            ],
             'to_user_id' => ['required', 'exists:users,id', 'different:from_user_id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'idempotency_key' => ['nullable', 'string', 'max:64'],
@@ -26,6 +31,7 @@ class StoreTransactionRequest extends FormRequest
         return [
             'from_user_id.required' => 'El usuario emisor es obligatorio.',
             'from_user_id.exists' => 'El usuario emisor no existe.',
+            'from_user_id.in' => 'Solo puede transferir desde su propia cuenta.',
             'to_user_id.required' => 'El usuario receptor es obligatorio.',
             'to_user_id.exists' => 'El usuario receptor no existe.',
             'to_user_id.different' => 'No se puede transferir al mismo usuario.',

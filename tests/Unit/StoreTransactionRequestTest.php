@@ -24,9 +24,11 @@ class StoreTransactionRequestTest extends TestCase
 
     public function test_validates_to_user_id_required(): void
     {
+        $u = User::factory()->create();
+        $this->actingAs($u);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
-            'from_user_id' => 1,
+            'from_user_id' => $u->id,
             'amount' => 10,
         ], $rules);
         $this->assertTrue($validator->fails());
@@ -49,6 +51,7 @@ class StoreTransactionRequestTest extends TestCase
     public function test_validates_to_user_id_exists(): void
     {
         $u = User::factory()->create();
+        $this->actingAs($u);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u->id,
@@ -63,6 +66,7 @@ class StoreTransactionRequestTest extends TestCase
     {
         $u1 = User::factory()->create();
         $u2 = User::factory()->create();
+        $this->actingAs($u1);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u1->id,
@@ -77,6 +81,7 @@ class StoreTransactionRequestTest extends TestCase
     {
         $u1 = User::factory()->create();
         $u2 = User::factory()->create();
+        $this->actingAs($u1);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u1->id,
@@ -92,6 +97,7 @@ class StoreTransactionRequestTest extends TestCase
     {
         $u1 = User::factory()->create();
         $u2 = User::factory()->create();
+        $this->actingAs($u1);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u1->id,
@@ -105,6 +111,7 @@ class StoreTransactionRequestTest extends TestCase
     {
         $u1 = User::factory()->create();
         $u2 = User::factory()->create();
+        $this->actingAs($u1);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u1->id,
@@ -118,6 +125,7 @@ class StoreTransactionRequestTest extends TestCase
     public function test_validates_to_user_different_from_from_user(): void
     {
         $u = User::factory()->create();
+        $this->actingAs($u);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u->id,
@@ -132,6 +140,7 @@ class StoreTransactionRequestTest extends TestCase
     {
         $u1 = User::factory()->create();
         $u2 = User::factory()->create();
+        $this->actingAs($u1);
         $rules = (new StoreTransactionRequest)->rules();
         $validator = Validator::make([
             'from_user_id' => $u1->id,
@@ -155,6 +164,22 @@ class StoreTransactionRequestTest extends TestCase
         $messages = $request->messages();
         $this->assertArrayHasKey('to_user_id.different', $messages);
         $this->assertSame('No se puede transferir al mismo usuario.', $messages['to_user_id.different']);
+    }
+
+    public function test_rejects_from_user_id_when_not_own_account(): void
+    {
+        $u1 = User::factory()->create();
+        $u2 = User::factory()->create();
+        $this->actingAs($u1);
+        $rules = (new StoreTransactionRequest)->rules();
+        $validator = Validator::make([
+            'from_user_id' => $u2->id,
+            'to_user_id' => $u1->id,
+            'amount' => 10,
+        ], $rules);
+        $this->assertTrue($validator->fails());
+        $this->assertArrayHasKey('from_user_id', $validator->errors()->toArray());
+        $this->assertStringContainsString('propia cuenta', $validator->errors()->first('from_user_id'));
     }
 
     public function test_custom_message_for_from_user_id_exists(): void
