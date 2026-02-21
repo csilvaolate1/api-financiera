@@ -25,6 +25,48 @@ class TransactionValidationTest extends TestCase
         return $user->createToken('test')->plainTextToken;
     }
 
+    public function test_successful_transfer_updates_balances(): void
+    {
+        $sender = $this->createUserWithBalance(200);
+        $receiver = $this->createUserWithBalance(50);
+        $token = $this->getAuthToken($sender);
+
+        $response = $this->postJson('/api/transactions', [
+            'from_user_id' => $sender->id,
+            'to_user_id' => $receiver->id,
+            'amount' => 75,
+        ], [
+            'Authorization' => 'Bearer ' . $token,
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.amount', 75);
+        $response->assertJsonPath('data.from_user_id', $sender->id);
+        $response->assertJsonPath('data.to_user_id', $receiver->id);
+
+        $sender->refresh();
+        $receiver->refresh();
+        $this->assertEquals(125, (float) $sender->balance);
+        $this->assertEquals(125, (float) $receiver->balance);
+    }
+
+    public function test_rejects_transfer_without_auth_token(): void
+    {
+        $sender = $this->createUserWithBalance(100);
+        $receiver = $this->createUserWithBalance(50);
+
+        $response = $this->postJson('/api/transactions', [
+            'from_user_id' => $sender->id,
+            'to_user_id' => $receiver->id,
+            'amount' => 50,
+        ], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertStatus(401);
+    }
+
     public function test_rejects_transfer_above_sender_balance(): void
     {
         $sender = $this->createUserWithBalance(100);

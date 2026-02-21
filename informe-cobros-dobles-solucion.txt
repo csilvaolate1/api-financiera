@@ -1,0 +1,126 @@
+================================================================================
+INFORME: COBROS DOBLES - CAUSA RAIZ, EJEMPLO Y SOLUCION
+================================================================================
+Escenario: Los usuarios reportan cobros dobles (la misma transferencia se
+registra mas de una vez y el monto se descuenta varias veces).
+
+================================================================================
+1. CAUSA RAIZ
+================================================================================
+
+  a) idempotency_key es OPCIONAL (nullable)
+     Si el cliente no envia idempotency_key, cada reintento o peticion
+     duplicada crea una nueva transaccion. En MySQL, la columna UNIQUE
+     permite multiples valores NULL, asi que no hay proteccion contra
+     duplicados cuando la clave es nula.
+
+  b) Comprobacion de idempotencia FUERA de la transaccion
+     El chequeo "existe transaccion con este idempotency_key" se hace
+     antes de DB::transaction(). Dos peticiones simultaneas con la misma
+     clave pueden pasar ambas el chequeo (ninguna ha hecho commit aun) y
+     crear duplicados (o depender del UNIQUE, pero con race condition).
+
+================================================================================
+2. EJEMPLO PRACTICO
+================================================================================
+
+  Escenario tipico: doble clic o reintento por timeout.
+
+  SIN idempotency_key:
+  --------------------
+    T0: Usuario hace clic en "Transferir 100 USD"
+    T1: Cliente envia POST /api/transactions { from_user_id: 1, to_user_id: 2, amount: 100 }
+        (no envia idempotency_key)
+    T2: Red lenta, usuario hace clic de nuevo (o reintento automatico)
+    T3: Cliente envia OTRA vez POST /api/transactions { from_user_id: 1, to_user_id: 2, amount: 100 }
+        (sigue sin idempotency_key)
+    T4: Ambas peticiones llegan al servidor y ambas crean transaccion.
+    Resultado: 2 cobros de 100 USD = usuario pierde 200 USD cuando solo queria 100.
+
+  CON idempotency_key (correcto):
+  ------------------------------
+    T0: Usuario hace clic en "Transferir 100 USD"
+    T1: Cliente genera UUID: "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+    T2: Cliente envia POST { ..., idempotency_key: "a1b2c3d4-5678-90ab-cdef-1234567890ab" }
+    T3: Usuario reintenta (timeout o doble clic)
+    T4: Cliente envia OTRA vez POST { ..., idempotency_key: "a1b2c3d4-5678-90ab-cdef-1234567890ab" }
+        (la MISMA clave porque es el mismo intento de pago)
+    T5: Primera peticion crea transaccion, responde 201.
+    T6: Segunda peticion encuentra transaccion existente con esa clave, responde 200
+        con la misma transaccion, SIN crear otra.
+    Resultado: 1 solo cobro de 100 USD.
+
+  Ejemplo de codigo en el cliente (JavaScript/TypeScript):
+  -------------------------------------------------------
+    const idempotencyKey = crypto.randomUUID(); // o uuid v4
+
+    const response = await fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ...' },
+      body: JSON.stringify({
+        from_user_id: 1,
+        to_user_id: 2,
+        amount: 100,
+        idempotency_key: idempotencyKey,  // SIEMPRE enviar
+      }),
+    });
+    // Si hay timeout y el usuario reintenta, usar la MISMA idempotencyKey
+    // guardada en estado (no generar otra).
+
+================================================================================
+3. SOLUCION PROPUESTA
+================================================================================
+
+  3.1 Servidor: hacer idempotency_key obligatorio
+      - En StoreTransactionRequest: cambiar 'nullable' por 'required'.
+      - Rechazar peticiones sin clave con 422 y mensaje claro.
+      - Asi se obliga a todos los clientes a implementar idempotencia.
+
+  3.2 Servidor: mover chequeo de idempotencia DENTRO de DB::transaction()
+      - Antes de crear la transaccion, dentro del callback de DB::transaction(),
+        volver a comprobar si existe una transaccion con ese idempotency_key.
+      - Si existe, devolverla y no crear otra (evita race condition).
+
+  3.3 Cliente: siempre generar y enviar idempotency_key
+      - Por cada accion de transferencia/pago, generar una clave unica (UUID).
+      - Si el usuario reintenta (timeout, doble clic), reutilizar la MISMA
+        clave, no generar una nueva.
+      - En formularios: deshabilitar el boton tras el primer clic para evitar
+        doble envio.
+
+  3.4 Consulta SQL para detectar cobros dobles ya ocurridos:
+      - Transacciones duplicadas por usuario, monto y dia (sin idempotency_key):
+
+        SELECT from_user_id, to_user_id, amount, DATE(created_at) AS dia,
+               COUNT(*) AS veces
+        FROM transactions
+        WHERE idempotency_key IS NULL
+        GROUP BY from_user_id, to_user_id, amount, DATE(created_at)
+        HAVING COUNT(*) > 1;
+
+      - O buscar transacciones del mismo usuario al mismo destino con el mismo
+        monto en pocos segundos:
+
+        SELECT t1.id, t2.id, t1.from_user_id, t1.to_user_id, t1.amount,
+               t1.created_at, t2.created_at
+        FROM transactions t1
+        JOIN transactions t2 ON t1.from_user_id = t2.from_user_id
+            AND t1.to_user_id = t2.to_user_id
+            AND t1.amount = t2.amount
+            AND t1.id < t2.id
+            AND ABS(TIMESTAMPDIFF(SECOND, t1.created_at, t2.created_at)) < 5;
+
+================================================================================
+4. RESUMEN
+================================================================================
+
+  Problema: Cobros dobles por reintentos o doble clic cuando idempotency_key
+            no se envia o la comprobacion esta fuera de la transaccion.
+
+  Solucion:
+  1. Servidor: idempotency_key obligatorio + chequeo dentro de DB::transaction()
+  2. Cliente: Generar UUID por accion, reutilizarlo en reintentos, evitar doble clic
+
+================================================================================
+Fin del informe
+================================================================================
